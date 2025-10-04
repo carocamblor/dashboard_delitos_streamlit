@@ -264,7 +264,10 @@ with tab1:
         total_hechos = df_año_seleccionado["cantidad_hechos"].sum()
         tasa = (total_hechos / poblacion) * 100000
         tasa_año_anterior = (total_hechos_año_anterior / poblacion_año_anterior) * 100000
-        variación = ((tasa - tasa_año_anterior) / tasa_año_anterior) * 100
+        if tasa_año_anterior != 0:
+            variación = ((tasa - tasa_año_anterior) / tasa_año_anterior) * 100
+        else:
+            variación = 'N/A'
 
         total_victimas = df_año_seleccionado["cantidad_victimas"].sum()
 
@@ -287,13 +290,26 @@ with tab1:
             
             with col_metric2:
 
-                st.markdown(f"""
-                <div class="metric-card metric-variacion">
-                    <div class="metric-value">{variación:.2f}%</div>
-                    <div class="metric-title">Variación anual</div>
-                    <div class="metric-subtitle">Cambio porcentual en la tasa respecto a {año_anterior}</div>
-                </div>
-                """, unsafe_allow_html=True)
+                if tasa_año_anterior != 0:
+
+                    st.markdown(f"""
+                    <div class="metric-card metric-variacion">
+                        <div class="metric-value">{variación:.2f}%</div>
+                        <div class="metric-title">Variación anual</div>
+                        <div class="metric-subtitle">Cambio porcentual en la tasa respecto a {año_anterior}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                else: 
+
+                    st.markdown(f"""
+                    <div class="metric-card metric-variacion">
+                        <div class="metric-value">{variación}</div>
+                        <div class="metric-title">Variación anual</div>
+                        <div class="metric-subtitle">Cambio porcentual en la tasa respecto a {año_anterior}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
             
             with col_metric3:
                 
@@ -477,7 +493,10 @@ with tab1:
             )
             fig_evolucion.update_yaxes(showgrid=True, gridcolor='lightgray', tickformat=",")
 
-            # Mostrar en Streamlit con modebar abajo a la derecha
+            # fig_evolucion.layout.xaxis.fixedrange = True
+            # fig_evolucion.layout.yaxis.fixedrange = True
+
+            # Mostrar sin modebar
             st.plotly_chart(fig_evolucion, use_container_width=False, config={"displayModeBar": False})
 
             st.markdown("###### Variación en la tasa de delitos")
@@ -627,7 +646,7 @@ with tab1:
     col_info1, col_info2 = st.columns([1, 1], gap = 'medium')
 
     with col_info1:
-        st.info("Durante los cuatro años, **la tasa de delitos creció a nivel nacional** y en 2024 superó el pico que se había alcanzado en 2019, previo a la pandemia.")
+        st.info("Durante los últimos cuatro años, **la tasa de delitos creció a nivel nacional** y en 2024 superó el pico que se había alcanzado en 2019, previo a la pandemia.")
     with col_info2:
         st.info("Si filtramos por **homicidios dolosos**, se observa una tendencia a la baja: la tasa bajó de 7,50 cada 100.000 habitantes en 2014 a 3,68 en 2024.")
 
@@ -1801,7 +1820,7 @@ with tab5:
         )
         st.markdown("**Utilidad**")
         st.info(
-            """Este tablero permite analizar en profundidad los distintos tipos de delitos y su evolución a nivel país, provincia y departamento. Ayuda a identificar tendencias, comparar regiones y comprender la variación de los niveles de delitos a lo largo del tiempo y en el territorio. Todo esto facilita la detección de patrones y contribuye a la toma de decisiones basadas en datos para combatir el delito en nuestro país.""" 
+            """Este tablero permite analizar en profundidad los distintos tipos de delitos y su evolución a nivel país, provincia y departamento. Ayuda a identificar tendencias, comparar regiones y comprender la variación de los niveles de delitos a lo largo del tiempo. Todo esto facilita la detección de patrones y contribuye a la toma de decisiones basadas en datos para combatir el delito en nuestro país.""" 
         )
         st.markdown("**Limitaciones**")
         st.info(
