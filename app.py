@@ -1,10 +1,14 @@
 import streamlit as st
 import polars as pl
 import plotly.express as px
-import json
 import gc
+import json
 
-# Configuración de página (quita márgenes grandes)
+import psutil
+import os
+import time
+
+# ---------------- CONFIGURACIÓN DE PÁGINA ---------------- #
 st.set_page_config(
     page_title="Delitos en Argentina",
     page_icon="🚓",
@@ -12,96 +16,61 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Color principal
-ACCENT_COLOR = "#328ec0" 
+ACCENT_COLOR = "#328ec0"
 
-# CSS para estilos
+# ---------------- CSS PERSONALIZADO ---------------- #
 st.markdown(
     f"""
     <style>
-    /* Quitar padding superior e izquierdo/derecho */
     .block-container {{
         padding-top: 1rem;
         padding-bottom: 1rem;
         padding-left: 3rem;
         padding-right: 3rem;
     }}
-
-    /* Cambiar accent color (inputs, sliders, botones, etc.) */
     :root {{
         --primary-color: {ACCENT_COLOR};
         --accent-color: {ACCENT_COLOR};
         --secondary-background-color: #f0f2f6;
     }}
-
-    /* Tabs: seleccionado */
     .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] {{
         color: {ACCENT_COLOR} !important;
     }}
-
-    /* Tabs: hover */
     .stTabs [data-baseweb="tab-list"] button:hover {{
         color: {ACCENT_COLOR} !important;
     }}
-
-    /* Tabs: barrita animada (focus underline) */
     .stTabs [data-baseweb="tab-highlight"] {{
         background-color: {ACCENT_COLOR} !important;
     }}
-
-    /* Borde de filtros (selectbox, multiselect, input, etc.) */
-    div[data-baseweb="select"] > div {{
+    div[data-baseweb="select"] > div, div[data-baseweb="input"] > div {{
         border: 0px solid {ACCENT_COLOR} !important;
         border-radius: 0.5rem !important;
     }}
-    div[data-baseweb="input"] > div {{
-        border: 0px solid {ACCENT_COLOR} !important;
-        border-radius: 0.5rem !important;
-    }}
-
-    /* Multiselect: color de las cajitas de opciones seleccionadas */
     .stMultiSelect [data-baseweb="tag"] {{
         background-color: {ACCENT_COLOR} !important;
         color: white !important;
         border-radius: 0.5rem !important;
         padding: 2px 6px !important;
     }}
-
     .metric-card {{
         height: 11rem;
         padding: 1.5rem;
         border-radius: 0.5rem;
         box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2);
         text-align: center;
-        border: 0;
         color: white;
         display: flex;
         flex-direction: column;
         justify-content: space-between;
         margin-bottom: 1rem;
     }}
-
     .metric-tasa {{ background: linear-gradient(to bottom right, #3fbbe2, #6392de); }}
     .metric-variacion {{ background: linear-gradient(to bottom right, #7b59b3, #5546b7); }}
     .metric-delitos {{ background: linear-gradient(to bottom right, #df437e, #b755a5); }}
     .metric-victimas {{ background: linear-gradient(to bottom right, #eeaf2a, #ef8154); }}
-
-    .metric-value {{
-        font-size: 2rem;
-        font-weight: bold;
-        margin: 0;
-    }}
-
-    .metric-title {{
-        font-size: 1.1rem;
-        margin: 0;
-    }}
-
-    .metric-subtitle {{
-        font-size: 0.8rem;
-        margin: 0;
-    }}
-
+    .metric-value {{ font-size: 2rem; font-weight: bold; margin: 0; }}
+    .metric-title {{ font-size: 1.1rem; margin: 0; }}
+    .metric-subtitle {{ font-size: 0.8rem; margin: 0; }}
     .stAlertContainer {{
         background: rgb(240, 242, 246) !important;
         color: #262730 !important;
@@ -111,26 +80,34 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-@st.cache_data
+# ---------------- CARGA OPTIMIZADA DE DATOS ---------------- #
+@st.cache_data(show_spinner=True)
 def load_data():
     try:
-        # Use scan_parquet for lazy loading
-        df_lazy = pl.scan_parquet('DATOS_SNIC_POB.parquet')
-        
-        # Optimize data types to reduce memory usage
-        df = df_lazy.with_columns([
-            pl.col("anio").cast(pl.Int16),  # Years don't need Int64
-            pl.col("cantidad_hechos").cast(pl.Int32),  # Reduce from Int64
-            pl.col("cantidad_victimas").cast(pl.Int32),  # Reduce from Int64
-            pl.col("poblacion_departamento").cast(pl.Int32),
-            pl.col("poblacion_provincia").cast(pl.Int32),
-            pl.col("poblacion_pais").cast(pl.Int32),
-        ]).collect()  # Only collect after optimization
-        
+        # Leer solo columnas necesarias para el dashboard
+        columns = [
+            "anio", "categoria_delito", "codigo_delito_snic_nombre",
+            "provincia_nombre", "depto_nombre_completo",
+            "cantidad_hechos", "cantidad_victimas",
+            "poblacion_departamento", "poblacion_provincia", "poblacion_pais"
+        ]
+
+        df = pl.scan_parquet("DATOS_SNIC_POB.parquet").select(columns).collect(streaming=True)
+
+        # Reducir memoria usando categorías
+        df = df.with_columns([
+            pl.col("categoria_delito").cast(pl.Categorical),
+            pl.col("codigo_delito_snic_nombre").cast(pl.Categorical),
+            pl.col("provincia_nombre").cast(pl.Categorical),
+            pl.col("depto_nombre_completo").cast(pl.Categorical)
+        ])
+
+        gc.collect()
         return df
+
     except FileNotFoundError:
-        st.error("No se encontró el archivo DATOS_SNIC_POB.parquet. Por favor, asegúrate de que esté en el directorio correcto.")
-        return None
+        st.error("No se encontró el archivo DATOS_SNIC_POB.parquet. Asegúrate de que esté en el directorio correcto.")
+        return pl.DataFrame()
 
 @st.cache_data
 def load_geojson():
@@ -141,22 +118,24 @@ def load_geojson():
         st.error("No se encontró el archivo ar.json")
         return None
 
-# Cargar datos
 df = load_data()
 argentina_geo = load_geojson()
 
-if df is None:
-    st.stop()
-
-# Título del dashboard
+# ---------------- TÍTULO ---------------- #
 st.title("Delitos en Argentina")
 
-# Tabs de navegación
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["Vista general", "Categorías y tipos de delitos", "Comparar provincias", "Comparar departamentos", "Fuentes y metodología"])
+# ---------------- TABS ---------------- #
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "Vista general", 
+    "Categorías y tipos de delitos", 
+    "Comparar provincias", 
+    "Comparar departamentos", 
+    "Fuentes y metodología"
+])
 
-# ---- Vista general ----
+# ---------------- TAB 1: VISTA GENERAL ---------------- #
 with tab1:
-    col1, col2 = st.columns([1, 4], gap = "medium")
+    col1, col2 = st.columns([1, 4], gap = "medium")  # col1 más chica para filtros, col2 más grande para gráficos
 
     with col1:
         st.markdown("**Filtros**")
@@ -211,7 +190,6 @@ with tab1:
         departamento_seleccionado = st.selectbox("Departamento", departamento)
 
         # ---- Mostrar filtros aplicados ----
-        st.divider()
         st.markdown("**Filtros aplicados**")
         st.markdown(f"""
         • **Año:** {año_seleccionado}
@@ -223,10 +201,11 @@ with tab1:
         • **Provincia:** {provincia_seleccionada}
         
         • **Departamento:** {departamento_seleccionado}
-
         """)
-        
+
     with col2:
+
+        # Filtrar años
         df_año_seleccionado = df.filter(pl.col("anio") == año_seleccionado)
         año_anterior = año_seleccionado - 1
         df_año_anterior = df.filter(pl.col("anio") == año_anterior)
@@ -283,46 +262,39 @@ with tab1:
         total_hechos = df_año_seleccionado["cantidad_hechos"].sum()
         tasa = (total_hechos / poblacion) * 100000
         tasa_año_anterior = (total_hechos_año_anterior / poblacion_año_anterior) * 100000
-        if tasa_año_anterior != 0:
-            variación = ((tasa - tasa_año_anterior) / tasa_año_anterior) * 100
-        else:
-            variación = 'N/A'
+        variación = ((tasa - tasa_año_anterior) / tasa_año_anterior) * 100
 
         total_victimas = df_año_seleccionado["cantidad_victimas"].sum()
 
         st.markdown(f"#### Métricas {año_seleccionado}")
 
         if año_seleccionado != 2010:
+
+            # Mostrar métricas
             col_metric1, col_metric2, col_metric3, col_metric4 = st.columns(4)
             
             with col_metric1:
+
                 st.markdown(f"""
                 <div class="metric-card metric-tasa">
-                    <div class="metric-value">{tasa:,.2f}</div>
+                    <div class="metric-value">{tasa:,.0f}</div>
                     <div class="metric-title">Tasa de delitos</div>
                     <div class="metric-subtitle">Cantidad de delitos cada 100 mil habitantes</div>
                 </div>
                 """, unsafe_allow_html=True)
             
             with col_metric2:
-                if tasa_año_anterior != 0:
-                    st.markdown(f"""
-                    <div class="metric-card metric-variacion">
-                        <div class="metric-value">{variación:.2f}%</div>
-                        <div class="metric-title">Variación anual</div>
-                        <div class="metric-subtitle">Cambio porcentual en la tasa respecto a {año_anterior}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                else: 
-                    st.markdown(f"""
-                    <div class="metric-card metric-variacion">
-                        <div class="metric-value">{variación}</div>
-                        <div class="metric-title">Variación anual</div>
-                        <div class="metric-subtitle">Cambio porcentual en la tasa respecto a {año_anterior}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
+
+                st.markdown(f"""
+                <div class="metric-card metric-variacion">
+                    <div class="metric-value">{variación:.2f}%</div>
+                    <div class="metric-title">Variación anual</div>
+                    <div class="metric-subtitle">Cambio porcentual en la tasa respecto a {año_anterior}</div>
+                </div>
+                """, unsafe_allow_html=True)
             
             with col_metric3:
+                
                 st.markdown(f"""
                 <div class="metric-card metric-delitos">
                     <div class="metric-value">{total_hechos:,.0f}</div>
@@ -332,6 +304,7 @@ with tab1:
                 """, unsafe_allow_html=True)
             
             with col_metric4:
+            
                 st.markdown(f"""
                 <div class="metric-card metric-victimas">
                     <div class="metric-value">{total_victimas:,.0f}</div>
@@ -369,9 +342,6 @@ with tab1:
                     <div class="metric-subtitle">Cantidad total de víctimas</div>
                 </div>
                 """, unsafe_allow_html=True)
-        
-        del total_hechos, total_victimas, tasa, variación
-        gc.collect()
         
         # Gráfico de evolución nacional
         st.markdown("#### Evolución a lo largo de los años")
@@ -463,7 +433,9 @@ with tab1:
         max_anio = df_graficos["anio"].max()
 
         with col_graficos1:
+
             st.markdown("###### Tasa de delitos")
+            # st.markdown("*La tasa de delitos es la cantidad de delitos cada 100,000 habitantes*")
 
             fig_evolucion = px.line(
                 df_graficos, 
@@ -486,24 +458,28 @@ with tab1:
                 margin=dict(l=0, r=30, t=0, b=0),
             )
 
+            # Línea más gruesa
             fig_evolucion.update_traces(
                 line=dict(width=3),
                 marker=dict(size=8),
-                hovertemplate="Año  %{x}<br>Tasa de delitos  %{y:,.2f}<extra></extra>"
+                hovertemplate="Año  %{x}<br>Tasa de delitos  %{y:,.0f}<extra></extra>"
             )
 
+            # Grilla y formato del eje Y con comas
             fig_evolucion.update_xaxes(
-                range=[min_anio - 0.5, max_anio + 0.5],
+                range=[min_anio - 0.5, max_anio + 0.5],  # padding de medio año a cada lado
                 tick0=min_anio,
-                dtick=3,
+                dtick=3,  # que muestre solo enteros (años)
                 showgrid=True,
                 gridcolor='lightgray'
             )
             fig_evolucion.update_yaxes(showgrid=True, gridcolor='lightgray', tickformat=",")
 
+            # Mostrar en Streamlit con modebar abajo a la derecha
             st.plotly_chart(fig_evolucion, use_container_width=False, config={"displayModeBar": False})
 
             st.markdown("###### Variación en la tasa de delitos")
+            # st.markdown("*La tasa de delitos es la cantidad de delitos cada 100,000 habitantes*")
             
             fig_evolucion = px.line(
                 df_graficos, 
@@ -528,25 +504,30 @@ with tab1:
 
             fig_evolucion.add_hline(y=0, line_dash="dash", line_color="darkgrey", line_width=2)
 
+            # Línea más gruesa
             fig_evolucion.update_traces(
                 line=dict(width=3),
                 marker=dict(size=8),
                 hovertemplate="Año  %{x}<br>Variación  %{y:.2%}<extra></extra>"
             )
 
+            # Grilla y formato del eje Y con comas
             fig_evolucion.update_xaxes(
-                range=[min_anio - 0.5, max_anio + 0.5],
+                range=[min_anio - 0.5, max_anio + 0.5],  # padding de medio año a cada lado
                 tick0=min_anio,
-                dtick=3,
+                dtick=3,  # que muestre solo enteros (años)
                 showgrid=True,
                 gridcolor='lightgray'
             )
             fig_evolucion.update_yaxes(showgrid=True, gridcolor='lightgray', tickformat=".0%")
 
+            # Mostrar en Streamlit con modebar abajo a la derecha
             st.plotly_chart(fig_evolucion, use_container_width=True, config={"displayModeBar": False})
 
         with col_graficos2:
+
             st.markdown("###### Cantidad de delitos")
+            # st.markdown("*La tasa de delitos es la cantidad de delitos cada 100,000 habitantes*")
 
             fig_evolucion = px.line(
                 df_graficos, 
@@ -569,24 +550,28 @@ with tab1:
                 margin=dict(l=0, r=30, t=0, b=0)
             )
 
+            # Línea más gruesa
             fig_evolucion.update_traces(
                 line=dict(width=3),
                 marker=dict(size=8),
                 hovertemplate="Año  %{x}<br>Delitos  %{y:,.0f}<extra></extra>"
             )
 
+            # Grilla y formato del eje Y con comas
             fig_evolucion.update_xaxes(
-                range=[min_anio - 0.5, max_anio + 0.5],
+                range=[min_anio - 0.5, max_anio + 0.5],  # padding de medio año a cada lado
                 tick0=min_anio,
-                dtick=3,
+                dtick=3,  # que muestre solo enteros (años)
                 showgrid=True,
                 gridcolor='lightgray'
             )
             fig_evolucion.update_yaxes(showgrid=True, gridcolor='lightgray', tickformat=",")
 
+            # Mostrar en Streamlit con modebar abajo a la derecha
             st.plotly_chart(fig_evolucion, use_container_width=True, config={"displayModeBar": False})
 
             st.markdown("###### Cantidad de víctimas")
+            # st.markdown("*La tasa de delitos es la cantidad de delitos cada 100,000 habitantes*")
             
             fig_evolucion = px.line(
                 df_graficos, 
@@ -609,25 +594,28 @@ with tab1:
                 margin=dict(l=0, r=30, t=0, b=0)
             )
 
+            # Línea más gruesa
             fig_evolucion.update_traces(
                 line=dict(width=3),
                 marker=dict(size=8),
                 hovertemplate="Año  %{x}<br>Víctimas  %{y:,.0f}<extra></extra>"
             )
 
+            # Grilla y formato del eje Y con comas
             fig_evolucion.update_xaxes(
-                range=[min_anio - 0.5, max_anio + 0.5],
+                range=[min_anio - 0.5, max_anio + 0.5],  # padding de medio año a cada lado
                 tick0=min_anio,
-                dtick=3,
+                dtick=3,  # que muestre solo enteros (años)
                 showgrid=True,
                 gridcolor='lightgray'
             )
             fig_evolucion.update_yaxes(showgrid=True, gridcolor='lightgray', tickformat=",")
 
+            # Mostrar en Streamlit con modebar abajo a la derecha
             st.plotly_chart(fig_evolucion, use_container_width=True, config={"displayModeBar": False})
 
-        del df_graficos
-        gc.collect()
+    del df_año_seleccionado, df_año_anterior
+    gc.collect()
 
     col_info1, col_info2 = st.columns([1, 1], gap = 'medium')
 
@@ -638,293 +626,240 @@ with tab1:
 
 # ---- Categorías y tipos de delito ----
 with tab2:
-    col1, col2 = st.columns([1, 4], gap = "medium")
+    col1, col2 = st.columns([1, 4], gap="medium")
 
+    # =======================
+    # FILTROS
+    # =======================
     with col1:
         st.markdown("**Filtros**")
-            
-        años_disponibles = sorted(df['anio'].unique(), reverse=True)
-        año_seleccionado = st.selectbox("Año", años_disponibles, key = 'Año tab2')
 
+        # Año
+        años_disponibles = sorted(df['anio'].unique(), reverse=True)
+        año_seleccionado = st.selectbox("Año", años_disponibles, key='Año tab2')
+
+        # Categorías
         categorias_delito = ['Todas'] + sorted(df['categoria_delito'].unique().to_list())
-        categoria_delito_seleccionadas = st.multiselect("Categorías", categorias_delito,  key = 'Categorías tab2')
-        if 'Todas' in categoria_delito_seleccionadas or not categoria_delito_seleccionadas:
+        categoria_delito_seleccionadas = st.multiselect("Categorías", categorias_delito, key='Categorías tab2')
+        if not categoria_delito_seleccionadas or 'Todas' in categoria_delito_seleccionadas:
             categoria_delito_seleccionadas = ['Todas']
 
-        if 'Todas' in categoria_delito_seleccionadas or not categoria_delito_seleccionadas:
+        # Tipos de delito
+        if 'Todas' in categoria_delito_seleccionadas:
             tipos_disponibles = sorted(df['codigo_delito_snic_nombre'].unique().to_list())
         else:
-            tipos_disponibles = (
-                df
-                .filter(pl.col("categoria_delito").is_in(categoria_delito_seleccionadas))
-                ["codigo_delito_snic_nombre"]
-                .unique()
-                .to_list()
+            tipos_disponibles = sorted(
+                df.filter(pl.col("categoria_delito").is_in(categoria_delito_seleccionadas))["codigo_delito_snic_nombre"].unique().to_list()
             )
-            tipos_disponibles = sorted(tipos_disponibles)
         tipos_delito = ['Todos'] + tipos_disponibles
-        tipo_delito_seleccionados = st.multiselect("Tipo de delito", tipos_delito,  key = 'Tipo de delito tab2')
-        if 'Todos' in tipo_delito_seleccionados or not tipo_delito_seleccionados:
+        tipo_delito_seleccionados = st.multiselect("Tipo de delito", tipos_delito, key='Tipo de delito tab2')
+        if not tipo_delito_seleccionados or 'Todos' in tipo_delito_seleccionados:
             tipo_delito_seleccionados = ['Todos']
 
+        # Provincia y departamento
         provincias_disponibles = ['Todas'] + sorted(df['provincia_nombre'].unique().to_list())
-        provincia_seleccionada = st.selectbox("Provincia", provincias_disponibles,  key = 'Provincia tab2')
+        provincia_seleccionada = st.selectbox("Provincia", provincias_disponibles, key='Provincia tab2')
 
-        if provincia_seleccionada != 'Todas' and provincia_seleccionada:
-            departamentos_disponibles = (
-                df
-                .filter(pl.col("provincia_nombre") == provincia_seleccionada)
-                ["depto_nombre_completo"]
-                .unique()
-                .to_list()
+        if provincia_seleccionada != 'Todas':
+            departamentos_disponibles = sorted(
+                df.filter(pl.col("provincia_nombre") == provincia_seleccionada)["depto_nombre_completo"].unique().to_list()
             )
-            departamentos_disponibles = sorted(departamentos_disponibles)
         else:
             departamentos_disponibles = sorted(df['depto_nombre_completo'].unique().to_list())
-
         departamento = ['Todos'] + departamentos_disponibles
-        departamento_seleccionado = st.selectbox("Departamento", departamento,  key = 'Departamento tab2')
+        departamento_seleccionado = st.selectbox("Departamento", departamento, key='Departamento tab2')
 
         st.divider()
         st.markdown("**Filtros aplicados**")
         st.markdown(f"""
         • **Año:** {año_seleccionado}
-
-        • **Categorías:** {", ".join([str(categoria) for categoria in categoria_delito_seleccionadas])}
-
-        • **Tipos de delito:** {", ".join([str(delito) for delito in tipo_delito_seleccionados])}
-
+        • **Categorías:** {", ".join(categoria_delito_seleccionadas)}
+        • **Tipos de delito:** {", ".join(tipo_delito_seleccionados)}
         • **Provincia:** {provincia_seleccionada}
-        
         • **Departamento:** {departamento_seleccionado}
         """)
 
+    # =======================
+    # FILTRO DE DATOS
+    # =======================
     with col2:
         st.info("En 2024, más de la mitad de los delitos fueron **delitos contra la propiedad,** principalmente robos y hurtos.")
 
-        df_año_seleccionado = df.filter(pl.col("anio") == año_seleccionado)
+        df_filtrado = df.filter(pl.col("anio") == año_seleccionado)
 
-        if 'Todas' not in categoria_delito_seleccionadas and categoria_delito_seleccionadas:
-            df_año_seleccionado = df_año_seleccionado.filter(pl.col("categoria_delito").is_in(categoria_delito_seleccionadas))
-        
-        if 'Todos' not in tipo_delito_seleccionados and tipo_delito_seleccionados:
-            df_año_seleccionado = df_año_seleccionado.filter(pl.col("codigo_delito_snic_nombre").is_in(tipo_delito_seleccionados))
+        if 'Todas' not in categoria_delito_seleccionadas:
+            df_filtrado = df_filtrado.filter(pl.col("categoria_delito").is_in(categoria_delito_seleccionadas))
 
-        if departamento_seleccionado != 'Todos' and departamento_seleccionado:
-            df_año_seleccionado = df_año_seleccionado.filter(pl.col("depto_nombre_completo") == departamento_seleccionado)
+        if 'Todos' not in tipo_delito_seleccionados:
+            df_filtrado = df_filtrado.filter(pl.col("codigo_delito_snic_nombre").is_in(tipo_delito_seleccionados))
 
-        elif provincia_seleccionada != 'Todas' and (departamento_seleccionado == 'Todos' or not departamento_seleccionado) and provincia_seleccionada:
-            df_año_seleccionado = df_año_seleccionado.filter(pl.col("provincia_nombre") == provincia_seleccionada)
+        if departamento_seleccionado != 'Todos':
+            df_filtrado = df_filtrado.filter(pl.col("depto_nombre_completo") == departamento_seleccionado)
+        elif provincia_seleccionada != 'Todas':
+            df_filtrado = df_filtrado.filter(pl.col("provincia_nombre") == provincia_seleccionada)
 
-        df_categoria_delito = (
-            df_año_seleccionado
+        # =======================
+        # FUNCIÓN PARA GRAFICOS
+        # =======================
+        def plot_top5(df_grouped, col_value, col_name_short, col_name_full, title):
+            # Asegurar que la columna numérica sea tipo float
+            df_grouped = df_grouped.with_columns(pl.col(col_value).cast(pl.Float64))
+
+            # Calcular porcentaje
+            total = df_grouped[col_value].sum()
+            if total == 0 or total is None:
+                st.warning(f"No hay datos suficientes para {title.lower()}.")
+                return
+
+            df_grouped = df_grouped.with_columns(
+                (pl.col(col_value) / total).alias("porcentaje")
+            )
+
+            # Truncar nombres largos
+            MAX_LEN = 28
+            df_grouped = df_grouped.with_columns(
+                pl.when(pl.col(col_name_full).cast(pl.Utf8).str.len_chars() <= MAX_LEN)
+                .then(pl.col(col_name_full).cast(pl.Utf8))
+                .otherwise(pl.col(col_name_full).cast(pl.Utf8).str.slice(0, MAX_LEN - 2) + "…")
+                .alias(col_name_short)
+            )
+
+            # Top 5
+            top5 = df_grouped.sort("porcentaje", descending=True).head(5)
+
+            # Agregar columna de texto con porcentaje
+            top5 = top5.with_columns(
+                pl.concat_str([
+                    (pl.col("porcentaje") * 100).round(1).cast(pl.Utf8),
+                    pl.lit("%")
+                ]).alias("porcentaje_text")
+            )
+
+            # Convertir solo este subset a pandas (minimiza RAM)
+            top5_pd = top5.to_pandas()
+
+            # Crear gráfico
+            fig = px.bar(
+                top5_pd,
+                x="porcentaje",
+                y=col_name_short,
+                orientation="h",
+                color="porcentaje",
+                color_continuous_scale=["#c5b6dc", "#7b59b3"],
+                text="porcentaje_text",
+                custom_data=[col_name_full, col_value, "porcentaje"]
+            )
+
+            # Configuración visual
+            fig.update_traces(
+                textposition="inside",
+                insidetextanchor="start",
+                textfont=dict(color="white"),
+                texttemplate="  %{text}",
+                hovertemplate="<b>%{customdata[0]}</b><br>" +
+                            "Porcentaje: %{customdata[2]:.2%}<br>" +
+                            "Cantidad de delitos: %{customdata[1]:,}<extra></extra>"
+            )
+
+            fig.update_layout(
+                xaxis_title="",
+                yaxis_title="",
+                showlegend=False,
+                plot_bgcolor="white",
+                paper_bgcolor="white",
+                font=dict(size=10),
+                height=len(top5_pd) * 30,
+                yaxis={"categoryorder": "total ascending"},
+                margin=dict(l=0, r=0, t=0, b=0),
+                xaxis=dict(visible=False),
+                bargap=0.2,
+                barcornerradius=5
+            )
+
+            fig.update_coloraxes(showscale=False)
+            fig.update_xaxes(
+                tickformat=".0%",
+                showgrid=True,
+                gridcolor="lightgrey",
+                gridwidth=0.5
+            )
+
+            fig.add_shape(
+                type="line",
+                x0=0, x1=0,
+                y0=-0.5, y1=len(top5_pd) - 0.5,
+                line=dict(color="lightgrey", width=1)
+            )
+
+            # Render del gráfico
+            st.markdown(f"###### {title}")
+            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+
+            # Liberar memoria
+            del top5_pd, top5, df_grouped, fig
+            gc.collect()
+
+        # =======================
+        # GRÁFICOS
+        # =======================
+        df_categoria = (
+            df_filtrado
             .group_by("categoria_delito")
-            .agg([
-                pl.col("cantidad_hechos").sum().alias("cantidad_hechos")
-            ])
-            .sort("cantidad_hechos", descending=True)
+            .agg(pl.sum("cantidad_hechos").alias("cantidad_hechos"))
+            .with_columns(pl.col("categoria_delito").cast(pl.Utf8))
         )
 
-        total_hechos = df_categoria_delito["cantidad_hechos"].sum()
-
-        df_categoria_delito = df_categoria_delito.with_columns(
-            (pl.col("cantidad_hechos") / total_hechos).alias("porcentaje_categoria")
-        )
-
-        df_tipo_delito = (
-            df_año_seleccionado
+        df_tipo = (
+            df_filtrado
             .group_by("codigo_delito_snic_nombre")
-            .agg([
-                pl.col("cantidad_hechos").sum().alias("cantidad_hechos")
-            ])
-            .sort("cantidad_hechos", descending=True)
+            .agg(pl.sum("cantidad_hechos").alias("cantidad_hechos"))
+            .with_columns(pl.col("codigo_delito_snic_nombre").cast(pl.Utf8))
         )
+        # df_categoria = df_filtrado.group_by("categoria_delito").agg(pl.sum("cantidad_hechos").alias("cantidad_hechos"))
+        plot_top5(df_categoria, "cantidad_hechos", "categoria_delito_short", "categoria_delito", "Top 5 categorías de delitos según su porcentaje")
 
-        df_tipo_delito = df_tipo_delito.with_columns(
-            (pl.col("cantidad_hechos") / total_hechos).alias("porcentaje_tipo_delito")
-        )
+        # df_tipo = df_filtrado.group_by("codigo_delito_snic_nombre").agg(pl.sum("cantidad_hechos").alias("cantidad_hechos"))
+        plot_top5(df_tipo, "cantidad_hechos", "tipo_delito_short", "codigo_delito_snic_nombre", "Top 5 tipos de delitos según su porcentaje")
 
-        altura_grafico_categorias = df_categoria_delito.head(5).shape[0] * 30
-        altura_grafico_tipos = df_tipo_delito.head(5).shape[0] * 30
+        # =======================
+        # INFO ADICIONAL
+        # =======================
+        st.info("Si filtramos por Salta, podemos notar que **en Salta en 2024 el 24% de los delitos registrados fueron contravenciones,** en contraste con el 4% a nivel nacional. ¿Cuál puede ser la razón por la cual hay una mayor proporción de contravenciones en Salta?")
 
-        custom_colorscale = ["#c5b6dc", '#7b59b3']
+        st.info("Si vamos a la pestaña Comparar departamentos, podemos ver que **Tordillo (Buenos Aires)** registró la mayor tasa de delitos en 2024. Al filtrar por este departamento en esta pestaña, podemos notar que el 94% son por **tenencia atenuada para uso personal de estupefacientes.**")
 
-        MAX_LEN = 28
-
-        df_categoria_delito = df_categoria_delito.with_columns(
-            pl.when(pl.col("categoria_delito").str.len_chars() <= MAX_LEN)
-            .then(pl.col("categoria_delito"))
-            .otherwise(pl.col("categoria_delito").str.slice(0, MAX_LEN - 2) + "...")
-            .alias("categoria_delito_short")
-        )
-
-        df_tipo_delito = df_tipo_delito.with_columns(
-            pl.when(pl.col("codigo_delito_snic_nombre").str.len_chars() <= MAX_LEN)
-            .then(pl.col("codigo_delito_snic_nombre"))
-            .otherwise(pl.col("codigo_delito_snic_nombre").str.slice(0, MAX_LEN - 2) + "...")
-            .alias("tipo_delito_short")
-        )
-
-        st.markdown("###### Top 5 categorías de delitos según su porcentaje")
-
-        top5_categorias = df_categoria_delito.head(5)
-
-        top5_categorias = top5_categorias.with_columns(
-            pl.concat_str([
-                (pl.col("porcentaje_categoria") * 100).round(1).cast(pl.Utf8),
-                pl.lit("%")
-            ]).alias("porcentaje_categoria_text")
-        )
-
-        fig_ranking = px.bar(
-            top5_categorias.to_pandas(),
-            x='porcentaje_categoria', 
-            y='categoria_delito_short',
-            orientation='h',
-            color='porcentaje_categoria',
-            color_continuous_scale=custom_colorscale,
-            text='porcentaje_categoria_text',
-            custom_data=["categoria_delito", "cantidad_hechos", "porcentaje_categoria"]
-        )
-
-        fig_ranking.update_traces(
-            textposition="inside",
-            insidetextanchor="start",
-            textfont=dict(color="white"),
-            texttemplate="  %{text}",
-            hovertemplate="<b>%{customdata[0]}</b><br>" +
-                        "Porcentaje: %{customdata[2]:.2%}<br>" +
-                        "Cantidad de delitos: %{customdata[1]:,}<extra></extra>"
-        )
-
-        fig_ranking.update_layout(
-            xaxis_title="",
-            yaxis_title="",
-            showlegend=False,
-            plot_bgcolor='white',
-            paper_bgcolor='white',
-            font=dict(size=10),
-            height=altura_grafico_categorias,
-            yaxis={'categoryorder':'total ascending'},
-            margin=dict(l=0, r=0, t=0, b=0),
-            xaxis=dict(visible=False),
-            barcornerradius=5
-        )
-
-        fig_ranking.update_coloraxes(showscale=False)
-
-        fig_ranking.update_xaxes(
-            tickformat=".0%",
-            showgrid=True,
-            gridcolor="lightgrey",
-            gridwidth=0.5
-        )
-
-        fig_ranking.add_shape(
-            type="line",
-            x0=0, x1=0,
-            y0=-0.5, y1=len(top5_categorias)-0.5,
-            line=dict(color="lightgrey", width=1)
-        )
-
-        st.plotly_chart(fig_ranking, use_container_width=True, config={"displayModeBar": False})
-
-        st.markdown("###### Top 5 tipos de delitos según su porcentaje")
-
-        top5_tipos = df_tipo_delito.head(5)
-
-        top5_tipos = top5_tipos.with_columns(
-            pl.concat_str([
-                (pl.col("porcentaje_tipo_delito") * 100).round(1).cast(pl.Utf8),
-                pl.lit("%")
-            ]).alias("porcentaje_tipo_delito_text")
-        )
-
-        fig_ranking = px.bar(
-            top5_tipos, 
-            x='porcentaje_tipo_delito', 
-            y='tipo_delito_short',
-            orientation='h',
-            color='porcentaje_tipo_delito',
-            color_continuous_scale=custom_colorscale,
-            text='porcentaje_tipo_delito_text',
-            custom_data=["codigo_delito_snic_nombre", "cantidad_hechos", "porcentaje_tipo_delito"]
-        )
-
-        fig_ranking.update_traces(
-            textposition="inside",
-            insidetextanchor="start",
-            textfont=dict(color="white"),
-            texttemplate="  %{text}",
-            hovertemplate="<b>%{customdata[0]}</b><br>" +
-                        "Porcentaje: %{customdata[2]:.2%}<br>" +
-                        "Cantidad de delitos: %{customdata[1]:,}<extra></extra>"
-        )
-
-        fig_ranking.update_layout(
-            xaxis_title="",
-            yaxis_title="",
-            showlegend=False,
-            plot_bgcolor='white',
-            paper_bgcolor='white',
-            font=dict(size=10),
-            height=altura_grafico_tipos,
-            yaxis={'categoryorder':'total ascending'},
-            margin=dict(l=0, r=0, t=0, b=0),
-            xaxis=dict(visible=False),
-            barcornerradius=5
-        )
-
-        fig_ranking.update_coloraxes(showscale=False)
-
-        fig_ranking.update_xaxes(
-            tickformat=".0%",
-            showgrid=True,
-            gridcolor="lightgrey",
-            gridwidth=0.5
-        )
-
-        fig_ranking.add_shape(
-            type="line",
-            x0=0, x1=0,
-            y0=-0.5, y1=len(top5_categorias)-0.5,
-            line=dict(color="lightgrey", width=1)
-        )
-
-        st.plotly_chart(fig_ranking, use_container_width=True, config={"displayModeBar": False})
-
-        st.info(f"Si filtramos por Salta, podemos notar que **en Salta en 2024 el 24% de los delitos registrados fueron contravenciones,** en contraste con el 4% a nivel nacional. ¿Cuál puede ser la razón por la cual hay una mayor proporción de contravensiones en Salta? ¿Es posible que se registren ciertos delitos que en otras provincias no, o que se registren bajo categorías distintas? ¿O simplemente hay más contravensiones en Salta que en otras provincias?")
-        
-        st.info(f"Si vamos a la pestaña Comparar departamentos, podemos ver que **Tordillo (Buenos Aires)** registró la mayor tasa de delitos en 2024. Al filtrar por este departamento en esta pestaña, podemos notar que el 94% son por **tenencia atenuada para uso personal de estupefacientes.**")
+        # Liberar memoria
+        del df_filtrado, df_categoria, df_tipo
+        gc.collect()
 
 # ---- Comparar provincias ----
 with tab3:
-    col1, col2 = st.columns([1, 4], gap = "medium")
+    col1, col2 = st.columns([1, 4], gap="medium")
 
     with col1:
         st.markdown("**Filtros**")
-            
+
         años_disponibles = sorted(df['anio'].unique(), reverse=True)
-        año_seleccionado = st.selectbox("Año", años_disponibles, key = 'Año tab3')
+        año_seleccionado = st.selectbox("Año", años_disponibles, key='Año tab3')
 
         categorias_delito = ['Todas'] + sorted(df['categoria_delito'].unique().to_list())
-        categoria_delito_seleccionadas = st.multiselect("Categorías", categorias_delito,  key = 'Categorías tab3')
+        categoria_delito_seleccionadas = st.multiselect("Categorías", categorias_delito, key='Categorías tab3')
         if 'Todas' in categoria_delito_seleccionadas or not categoria_delito_seleccionadas:
             categoria_delito_seleccionadas = ['Todas']
 
-        if 'Todas' in categoria_delito_seleccionadas or not categoria_delito_seleccionadas:
+        if 'Todas' in categoria_delito_seleccionadas:
             tipos_disponibles = sorted(df['codigo_delito_snic_nombre'].unique().to_list())
         else:
             tipos_disponibles = (
-                df
-                .filter(pl.col("categoria_delito").is_in(categoria_delito_seleccionadas))
+                df.filter(pl.col("categoria_delito").is_in(categoria_delito_seleccionadas))
                 ["codigo_delito_snic_nombre"]
                 .unique()
                 .to_list()
             )
             tipos_disponibles = sorted(tipos_disponibles)
+
         tipos_delito = ['Todos'] + tipos_disponibles
-        tipo_delito_seleccionados = st.multiselect("Tipo de delito", tipos_delito,  key = 'Tipo de delito tab3')
+        tipo_delito_seleccionados = st.multiselect("Tipo de delito", tipos_delito, key='Tipo de delito tab3')
         if 'Todos' in tipo_delito_seleccionados or not tipo_delito_seleccionados:
             tipo_delito_seleccionados = ['Todos']
 
@@ -941,29 +876,25 @@ with tab3:
         st.divider()
 
         st.info("Si seleccionamos **homicidios dolosos** como tipo de delito, vemos que **Santa Fe** se posiciona en 2024 como la provincia con la mayor tasa del país.")
-        
         st.info("Seleccionando la categoría de **contrabando,** vemos que **Formosa** es la provincia con mayor tasa de contrabando.")
-        
         st.divider()
-
         st.info("Si utilizamos los gráficos de evolución para **comparar la tasa de delitos general de Santa Fe y Salta**, podermos ver que Santa Fe se ha mantenido relativamente estable en los últimos 15 años, mientras que Salta muestra un comportamiento más volátil y una tendencia creciente.")
 
     with col2:
         st.markdown(f"#### Comparación de la tasa de delitos por provincia")
-
         st.info(f"En 2024, Salta fue la provincia con mayor tasa de delitos.")
 
-        df_filtrado = df
+        # 🔹 Usar solo las columnas necesarias y convertir categóricas al vuelo
+        df_filtrado = df.select([
+            "anio", "categoria_delito", "codigo_delito_snic_nombre",
+            "provincia_nombre", "cantidad_hechos", "poblacion_provincia"
+        ])
 
-        if "Todas" not in categoria_delito_seleccionadas and categoria_delito_seleccionadas:
-            df_filtrado = df_filtrado.filter(
-                pl.col("categoria_delito").is_in(categoria_delito_seleccionadas)
-            )
+        if "Todas" not in categoria_delito_seleccionadas:
+            df_filtrado = df_filtrado.filter(pl.col("categoria_delito").is_in(categoria_delito_seleccionadas))
 
-        if "Todos" not in tipo_delito_seleccionados and tipo_delito_seleccionados:
-            df_filtrado = df_filtrado.filter(
-                pl.col("codigo_delito_snic_nombre").is_in(tipo_delito_seleccionados)
-            )
+        if "Todos" not in tipo_delito_seleccionados:
+            df_filtrado = df_filtrado.filter(pl.col("codigo_delito_snic_nombre").is_in(tipo_delito_seleccionados))
 
         df_evolucion = (
             df_filtrado
@@ -975,8 +906,16 @@ with tab3:
             .sort("cantidad_hechos", descending=True)
         )
 
+        del df_filtrado  # liberar memoria
+
+                # Calcular tasa de delitos
         df_evolucion = df_evolucion.with_columns(
             ((pl.col("cantidad_hechos") / (pl.col("poblacion_provincia") / 100_000)).round(2)).alias("tasa_delitos")
+        )
+
+        # Convertir a string antes de hacer los reemplazos
+        df_evolucion = df_evolucion.with_columns(
+            pl.col("provincia_nombre").cast(pl.Utf8).alias("provincia_nombre_str")
         )
 
         replacements_espacio = {
@@ -990,16 +929,16 @@ with tab3:
         }
 
         df_evolucion = df_evolucion.with_columns([
-            pl.col("provincia_nombre").replace(replacements_espacio).alias("provincia_nombre_espacio"),
-            pl.col("provincia_nombre").replace(replacements_espacio).alias("provincia_nombre_short"),
-            pl.col("provincia_nombre").replace(replacements_mapa).alias("provincia_nombre_mapa")
+            pl.col("provincia_nombre_str").replace(replacements_espacio).alias("provincia_nombre_espacio"),
+            pl.col("provincia_nombre_str").replace(replacements_espacio).alias("provincia_nombre_short"),
+            pl.col("provincia_nombre_str").replace(replacements_mapa).alias("provincia_nombre_mapa")
         ])
 
         MAX_LEN = 28
         df_evolucion = df_evolucion.with_columns(
             pl.when(pl.col("provincia_nombre_short").str.len_chars() <= MAX_LEN)
             .then(pl.col("provincia_nombre_short"))
-            .otherwise(pl.col("provincia_nombre_short").str.slice(0, MAX_LEN-2) + "...")
+            .otherwise(pl.col("provincia_nombre_short").str.slice(0, MAX_LEN - 2) + "...")
             .alias("provincia_nombre_short")
         )
 
@@ -1013,95 +952,73 @@ with tab3:
 
         df_año_seleccionado = df_evolucion.filter(pl.col("anio") == año_seleccionado)
 
+        # 🔹 Convertir solo las columnas necesarias a string para Plotly
+        df_año_seleccionado = df_año_seleccionado.with_columns([
+            pl.col("provincia_nombre_short").cast(pl.Utf8),
+            pl.col("provincia_nombre_mapa").cast(pl.Utf8),
+            pl.col("provincia_nombre").cast(pl.Utf8)
+        ])
+
         altura_grafico = 24 * 25
         altura_mapa = 24 * 25
         custom_colorscale = ["#a5c6d9", "#328ec0"]
 
-        col_ranking, col_mapa = st.columns([1, 1], gap = 'medium')
+        col_ranking, col_mapa = st.columns([1, 1], gap='medium')
 
+        # 🔹 RANKING
         with col_ranking:
             st.markdown("###### Tasa de delitos por provincia")
-
             fig_ranking = px.bar(
-                df_año_seleccionado, 
-                x='tasa_delitos', 
+                df_año_seleccionado.to_pandas(),  # Plotly necesita pandas
+                x='tasa_delitos',
                 y='provincia_nombre_short',
                 orientation='h',
                 color='tasa_delitos',
                 color_continuous_scale=custom_colorscale,
-                text=df_año_seleccionado['tasa_delitos'],
+                text='tasa_delitos',
                 custom_data=["provincia_nombre", "cantidad_hechos", "tasa_delitos", "poblacion_provincia", "anio"]
             )
-
             fig_ranking.update_traces(
                 textposition="inside",
                 insidetextanchor="start",
                 textfont=dict(color="white"),
                 texttemplate="  %{text:,.2f}",
                 hovertemplate="<b>%{customdata[0]}</b><br>" +
-                            "Tasa de delitos: %{customdata[2]:,.2f}<br>" +
-                            "Cantidad de delitos: %{customdata[1]:,}<br>" +
-                            "Población %{customdata[4]}: %{customdata[3]:,}<extra></extra>"
+                              "Tasa de delitos: %{customdata[2]:,.2f}<br>" +
+                              "Cantidad de delitos: %{customdata[1]:,}<br>" +
+                              "Población %{customdata[4]}: %{customdata[3]:,}<extra></extra>"
             )
-
             fig_ranking.update_layout(
-                xaxis_title="",
-                yaxis_title="",
-                showlegend=False,
-                plot_bgcolor='white',
-                paper_bgcolor='white',
-                font=dict(size=10),
-                height=altura_grafico,
-                yaxis={'categoryorder':'total ascending'},
+                xaxis_title="", yaxis_title="",
+                showlegend=False, plot_bgcolor='white', paper_bgcolor='white',
+                font=dict(size=10), height=altura_grafico,
+                yaxis={'categoryorder': 'total ascending'},
                 margin=dict(l=0, r=0, t=0, b=0),
                 xaxis=dict(visible=False),
                 barcornerradius=5
             )
-
             fig_ranking.update_coloraxes(showscale=False)
-
-            fig_ranking.update_xaxes(
-                showgrid=True,
-                gridcolor="lightgrey",
-                gridwidth=0.5
-            )
-
-            fig_ranking.add_shape(
-                type="line",
-                x0=0, x1=0,
-                y0=-0.5, y1=len(df_año_seleccionado)-0.5,
-                line=dict(color="lightgrey", width=1)
-            )
-
+            fig_ranking.update_xaxes(showgrid=True, gridcolor="lightgrey", gridwidth=0.5)
             st.plotly_chart(fig_ranking, use_container_width=True, config={"displayModeBar": False})
 
+        # MAPA
         with col_mapa:
             st.markdown("###### Mapa de delitos por provincia")
-            custom_colorscale = ["#a5c6d9", "#1473a6"]
 
             fig = px.choropleth_mapbox(
-                df_año_seleccionado,
+                df_año_seleccionado.to_pandas(),
                 geojson=argentina_geo,
                 featureidkey="properties.name",
                 locations="provincia_nombre_mapa",
                 color="tasa_delitos",
-                color_continuous_scale=custom_colorscale,
+                color_continuous_scale=["#a5c6d9", "#1473a6"],
                 mapbox_style="white-bg",
                 opacity=0.7,
                 hover_data=["provincia_nombre", "cantidad_hechos", "tasa_delitos", "poblacion_provincia", "anio"],
                 labels={"tasa_delitos": "Tasa de delitos"}
             )
-
-            fig.update_traces(
-                hovertemplate="<b>%{customdata[0]}</b><br>" +
-                            "Tasa de delitos: %{customdata[2]:,.2f}<br>" +
-                            "Cantidad de delitos: %{customdata[1]:,}<br>" +
-                            "Población %{customdata[4]}: %{customdata[3]:,}<extra></extra>"
-            )
-
             fig.update_layout(
-                title="",
-                margin={"r":0,"t":0,"l":0,"b":0},
+                margin={"r": 0, "t": 0, "l": 0, "b": 0},
                 height=altura_mapa,
                 coloraxis_showscale=False,
                 mapbox=dict(
@@ -1110,8 +1027,10 @@ with tab3:
                     zoom=3
                 ),
             )
-
             st.plotly_chart(fig, use_container_width=True)
+
+        del df_año_seleccionado
+        gc.collect()
         
         st.markdown(f"#### Evolución a lo largo de los años")
 
@@ -1230,10 +1149,10 @@ with tab3:
 
         st.markdown("###### Variación anual de la tasa de delitos por provincia")
 
-        df_evolucion = df_evolucion.filter(pl.col('anio') >= 2010)
+        df_evolucion_var = df_evolucion.filter(pl.col('anio') >= 2014)
 
         fig_evolucion = px.line(
-            df_evolucion, 
+            df_evolucion_var, 
             x='anio', 
             y='variacion',
             line_shape='spline',
@@ -1274,14 +1193,14 @@ with tab3:
 
         fig_evolucion.update_yaxes(showgrid=True, gridcolor='lightgray', tickformat=".0%")
 
-        min_year = df_evolucion["anio"].min()
-        max_year = df_evolucion["anio"].max()
+        min_year = df_evolucion_var["anio"].min()
+        max_year = df_evolucion_var["anio"].max()
         fig_evolucion.update_xaxes(range=[min_year - 0.5, max_year + 0.5], dtick=1)
 
         color_map = {trace.name: trace.line.color for trace in fig_evolucion.data}
 
-        for prov in df_evolucion["provincia_nombre_short"].unique().to_list():
-            df_prov = df_evolucion.filter(pl.col("provincia_nombre_short") == prov)
+        for prov in df_evolucion_var["provincia_nombre_short"].unique().to_list():
+            df_prov = df_evolucion_var.filter(pl.col("provincia_nombre_short") == prov)
             
             ultimo_x = df_prov["anio"].max()
             
@@ -1299,17 +1218,21 @@ with tab3:
 
         st.plotly_chart(fig_evolucion, use_container_width=False, config={"displayModeBar": True})
 
+        # <CHANGE> Liberar memoria
+        del df_evolucion, df_evolucion_var
+        gc.collect()
+
 with tab4:
-    col1, col2 = st.columns([1, 4], gap = "medium")
+    col1, col2 = st.columns([1, 4], gap="medium")
 
     with col1:
         st.markdown("**Filtros**")
-            
+        
         años_disponibles = sorted(df['anio'].unique(), reverse=True)
-        año_seleccionado = st.selectbox("Año", años_disponibles, key = 'Año tab4')
+        año_seleccionado = st.selectbox("Año", años_disponibles, key='Año tab4')
 
         categorias_delito = ['Todas'] + sorted(df['categoria_delito'].unique().to_list())
-        categoria_delito_seleccionadas = st.multiselect("Categorías", categorias_delito,  key = 'Categorías tab4')
+        categoria_delito_seleccionadas = st.multiselect("Categorías", categorias_delito, key='Categorías tab4')
         if 'Todas' in categoria_delito_seleccionadas or not categoria_delito_seleccionadas:
             categoria_delito_seleccionadas = ['Todas']
 
@@ -1325,12 +1248,12 @@ with tab4:
             )
             tipos_disponibles = sorted(tipos_disponibles)
         tipos_delito = ['Todos'] + tipos_disponibles
-        tipo_delito_seleccionados = st.multiselect("Tipo de delito", tipos_delito,  key = 'Tipo de delito tab4')
+        tipo_delito_seleccionados = st.multiselect("Tipo de delito", tipos_delito, key='Tipo de delito tab4')
         if 'Todos' in tipo_delito_seleccionados or not tipo_delito_seleccionados:
             tipo_delito_seleccionados = ['Todos']
 
         provincias_disponibles = ['Todas'] + sorted(df['provincia_nombre'].unique().to_list())
-        provincia_seleccionada = st.multiselect("Provincias", provincias_disponibles,  key = 'Provincia tab4', default = ['Todas'])
+        provincia_seleccionada = st.multiselect("Provincias", provincias_disponibles, key='Provincia tab4', default=['Todas'])
         if 'Todas' in provincia_seleccionada or not provincia_seleccionada:
             provincia_seleccionada = ['Todas']
 
@@ -1338,23 +1261,25 @@ with tab4:
         st.markdown("**Filtros aplicados**")
         st.markdown(f"""
         • **Año:** {año_seleccionado}
-
         • **Categorías:** {", ".join([str(categoria) for categoria in categoria_delito_seleccionadas])}
-
         • **Tipos de delito:** {", ".join([str(delito) for delito in tipo_delito_seleccionados])}
-
         • **Provincias:** {", ".join([str(provincia) for provincia in provincia_seleccionada])}
         """)
 
         st.info("Si comparamos **San Isidro y Tigre,** podemos ver que hasta 2020 mostraban trayectorias similares, pero desde 2021 sus dinámicas se invirtieron. San Isidro alcanzó un pico en 2022 y luego bajó, mientras que Tigre tuvo un mínimo en 2023 y se disparó en 2024.")
 
     with col2:
-        col_grafico_ranking, col_info = st.columns([11, 8], gap = 'medium')
+        col_grafico_ranking, col_info = st.columns([11, 8], gap='medium')
 
         with col_grafico_ranking:
             st.markdown(f"#### Comparación de la tasa de delitos por departamento")
 
-            df_filtrado = df
+            # Clonamos df para filtrar sin afectar el original
+            df_filtrado = df.clone()
+
+            df_filtrado = df_filtrado.with_columns(
+                pl.col("depto_nombre_completo").cast(pl.Utf8)
+            )
 
             if 'Todas' not in categoria_delito_seleccionadas and categoria_delito_seleccionadas:
                 df_filtrado = df_filtrado.filter(
@@ -1371,34 +1296,39 @@ with tab4:
                     pl.col('provincia_nombre').is_in(provincia_seleccionada)
                 )
 
-            df_evolucion = df_filtrado.group_by(['anio', 'depto_nombre_completo']).agg([
-                pl.col('cantidad_hechos').sum(),
-                pl.col('poblacion_departamento').first()
-            ]).sort(by = 'cantidad_hechos', descending=True)
+            # Agrupamos por año y departamento
+            df_evolucion = (
+                df_filtrado.group_by(['anio', 'depto_nombre_completo'])
+                .agg([
+                    pl.col('cantidad_hechos').sum(),
+                    pl.col('poblacion_departamento').first()
+                ])
+                .sort(by='cantidad_hechos', descending=True)
+            )
 
+            # Calculamos tasa de delitos
             df_evolucion = df_evolucion.with_columns(
                 (pl.col("cantidad_hechos") / (pl.col("poblacion_departamento") / 100_000))
                 .round(2)
                 .alias("tasa_delitos")
             )
-            
-            df_evolucion = df_evolucion.sort(by = ['depto_nombre_completo', 'anio'])
 
+            # Liberamos memoria
+            del df_filtrado
+
+            df_evolucion = df_evolucion.sort(by=['depto_nombre_completo', 'anio'])
+
+            # Filtramos solo el año seleccionado
             df_año_seleccionado = df_evolucion.filter(pl.col('anio') == año_seleccionado)
 
-            altura_grafico = 24 * 25
-
-            custom_colorscale = ["#e096b2", '#df437e']
-
+            # Acortamos nombres largos
             MAX_LEN = 28
-
             df_año_seleccionado = df_año_seleccionado.with_columns(
                 pl.when(pl.col("depto_nombre_completo").str.len_chars() <= MAX_LEN)
                 .then(pl.col("depto_nombre_completo"))
                 .otherwise(pl.col("depto_nombre_completo").str.slice(0, MAX_LEN-2) + "...")
                 .alias("departamento_nombre_short")
             )
-
             df_evolucion = df_evolucion.with_columns(
                 pl.when(pl.col("depto_nombre_completo").str.len_chars() <= MAX_LEN)
                 .then(pl.col("depto_nombre_completo"))
@@ -1406,14 +1336,11 @@ with tab4:
                 .alias("departamento_nombre_short")
             )
 
-            st.markdown("###### Top 5 departamentos con mayor tasa de delitos")
-
-            df_año_seleccionado = df_año_seleccionado.drop_nulls()
-
-            df_año_seleccionado = df_año_seleccionado.sort("tasa_delitos", descending=True).head(5)
-
+            # Top 5 departamentos
+            df_año_seleccionado = df_año_seleccionado.drop_nulls().sort("tasa_delitos", descending=True).head(5)
             altura_grafico = df_año_seleccionado.shape[0] * 35
 
+            custom_colorscale = ["#e096b2", '#df437e']
             fig_ranking = px.bar(
                 df_año_seleccionado, 
                 x='tasa_delitos', 
@@ -1452,28 +1379,22 @@ with tab4:
             )
 
             fig_ranking.update_coloraxes(showscale=False)
-
-            fig_ranking.update_xaxes(
-                showgrid=True,
-                gridcolor="lightgrey",
-                gridwidth=0.5
-            )
-
-            fig_ranking.add_shape(
-                type="line",
-                x0=0, x1=0,
-                y0=-0.5, y1=5-0.5,
-                line=dict(color="lightgrey", width=1)
-            )
-
+            fig_ranking.update_xaxes(showgrid=True, gridcolor="lightgrey", gridwidth=0.5)
+            fig_ranking.add_shape(type="line", x0=0, x1=0, y0=-0.5, y1=5-0.5, line=dict(color="lightgrey", width=1))
             st.plotly_chart(fig_ranking, use_container_width=True, config={"displayModeBar": False})
+
+            # Liberamos memoria del año seleccionado
+            del df_año_seleccionado
+            gc.collect()
 
         with col_info:
             st.info("""Llama la atención el caso de **Tordillo** (Buenos Aires), que en 2024 exhibe una tasa de delitos extraordinariamente alta debido a la combinación de una pequeña población y un gran número de hechos registrados. Utilizando la pestaña Categorías y tipos de delitos, podemos ver que la mayoría corresponden a delitos vinculados a la **ley 23.737 (estupefacientes).**
-En la pestaña de Vista general, si miramos hacia atrás, en 2013 Tordillo también había registrado un pico excepcional de **amenazas** (más de 2.000 hechos), lo que invita a cuestionar a qué se deben estos picos.""")
-    
+    En la pestaña de Vista general, si miramos hacia atrás, en 2013 Tordillo también había registrado un pico excepcional de **amenazas** (más de 2.000 hechos), lo que invita a cuestionar a qué se deben estos picos.""")
+        
+        # Evolución por departamento
         st.markdown(f"#### Evolución a lo largo de los años")
 
+        # ---- Departamentos dependientes de provincia ----
         if ('Todas' not in provincia_seleccionada and provincia_seleccionada):
             departamentos_disponibles = (
                 df
@@ -1487,57 +1408,54 @@ En la pestaña de Vista general, si miramos hacia atrás, en 2013 Tordillo tambi
             departamentos_disponibles = sorted(df['depto_nombre_completo'].unique().to_list())
 
         departamentos_disponibles = ['Todos'] + departamentos_disponibles
-        departamento_seleccionado = st.multiselect("Seleccionar departamentos", departamentos_disponibles,  key = 'Departamento tab4', default = ['San Isidro, Buenos Aires', 'Tigre, Buenos Aires'])
+        departamento_seleccionado = st.multiselect(
+            "Seleccionar departamentos",
+            departamentos_disponibles,
+            key='Departamento tab4',
+            default=['San Isidro, Buenos Aires', 'Tigre, Buenos Aires']
+        )
 
+        # Filtrar df_evolucion
         if "Todos" not in departamento_seleccionado and departamento_seleccionado:
             df_evolucion = df_evolucion.filter(
                 pl.col("depto_nombre_completo").is_in(departamento_seleccionado)
             )
 
+        # Mantener solo columnas necesarias para gráficos
+        df_evolucion = df_evolucion.select([
+            "depto_nombre_completo", "departamento_nombre_short", "anio",
+            "tasa_delitos", "cantidad_hechos", "poblacion_departamento"
+        ])
+
+        # Ordenar
         df_evolucion = df_evolucion.sort(["depto_nombre_completo", "anio"])
 
+        # Calcular tasa_delitos_anterior y variación
         df_evolucion = df_evolucion.with_columns(
-            pl.col("tasa_delitos").shift(1).over("depto_nombre_completo").alias("tasa_delitos_anterior"),
-        ).with_columns(
+            pl.col("tasa_delitos").shift(1).over("depto_nombre_completo").alias("tasa_delitos_anterior")
+        )
+        df_evolucion = df_evolucion.with_columns(
             ((pl.col("tasa_delitos") - pl.col("tasa_delitos_anterior")) / pl.col("tasa_delitos_anterior")).alias("variacion")
         )
 
         st.markdown("###### Tasa de delitos por departamento")
 
+        # Paleta de colores personalizada
         colors = [
-            '#3fbbe2',
-            '#7b59b3',
-            '#df437e',
-            '#ef8154',
-            '#1f77b4',
-            '#2ca02c',
-            '#e377c2',
-            '#eeaf2a',
-            "#C56074",
-            '#CF54EF',
-            '#59B3A8',
-            '#437EDF',
-            '#7EDF43',
-            '#43DFA4',
-            '#A71FB4',
-            '#54C2EF',
-            '#8154EF',
-            '#B41F77',
-            '#1F2DB4',
-            '#1FB4A7',
-            "#bd5b34",
-            '#77B41F',
-            '#EF5475',
-            '#5475EF',
+            '#3fbbe2', '#7b59b3', '#df437e', '#ef8154', '#1f77b4', '#2ca02c',
+            '#e377c2', '#eeaf2a', "#C56074", '#CF54EF', '#59B3A8', '#437EDF',
+            '#7EDF43', '#43DFA4', '#A71FB4', '#54C2EF', '#8154EF', '#B41F77',
+            '#1F2DB4', '#1FB4A7', "#bd5b34", '#77B41F', '#EF5475', '#5475EF',
         ]
 
+        # ---- Gráfico Tasa de Delitos ----
         fig_evolucion = px.line(
-            df_evolucion, 
-            x='anio', 
+            df_evolucion,
+            x='anio',
             y='tasa_delitos',
             line_shape='spline',
-            markers = True,
-            color='departamento_nombre_short',  
+            markers=True,
+            color='departamento_nombre_short',
             custom_data=["depto_nombre_completo", "anio", "tasa_delitos", "cantidad_hechos", "poblacion_departamento"],
             color_discrete_sequence=colors,
             title=""
@@ -1546,18 +1464,15 @@ En la pestaña de Vista general, si miramos hacia atrás, en 2013 Tordillo tambi
         for trace in fig_evolucion.data:
             color = trace.line.color
             trace.hovertemplate = (
-                f"<b><span style='color:{color}'>%{{customdata[0]}}</span></b><br>" +
-                "Año %{customdata[1]}<br>" +
-                "Tasa de delitos: %{customdata[2]:,.2f}<br>" +
-                "Cantidad de delitos: %{customdata[3]:,.0f}<br>" +
+                f"<b><span style='color:{color}'>%{{customdata[0]}}</span></b><br>"
+                "Año %{customdata[1]}<br>"
+                "Tasa de delitos: %{customdata[2]:,.2f}<br>"
+                "Cantidad de delitos: %{customdata[3]:,.0f}<br>"
                 "Población: %{customdata[4]:,.0f}<extra></extra>"
             )
             trace.line.width = 3
 
-        fig_evolucion.update_traces(
-            marker=dict(size=8),
-        )
-
+        fig_evolucion.update_traces(marker=dict(size=8))
         fig_evolucion.update_layout(
             xaxis_title="",
             yaxis_title="",
@@ -1568,22 +1483,17 @@ En la pestaña de Vista general, si miramos hacia atrás, en 2013 Tordillo tambi
             height=400,
             margin=dict(l=0, r=120, t=0, b=0),
         )
-
         fig_evolucion.update_yaxes(showgrid=True, gridcolor='lightgray', tickformat=",")
-
         min_year = df_evolucion["anio"].min()
         max_year = df_evolucion["anio"].max()
         fig_evolucion.update_xaxes(range=[min_year - 0.5, max_year + 0.5], dtick=1)
 
+        # Etiquetas finales con mismo color que línea
         color_map = {trace.name: trace.line.color for trace in fig_evolucion.data}
-
         for depto in df_evolucion["departamento_nombre_short"].unique().to_list():
             df_depto = df_evolucion.filter(pl.col("departamento_nombre_short") == depto)
-            
             ultimo_x = df_depto["anio"].max()
-            
             ultimo_y = df_depto.filter(pl.col("anio") == ultimo_x)["tasa_delitos"].item()
-            
             fig_evolucion.add_annotation(
                 x=ultimo_x,
                 y=ultimo_y,
@@ -1595,39 +1505,41 @@ En la pestaña de Vista general, si miramos hacia atrás, en 2013 Tordillo tambi
             )
 
         st.plotly_chart(fig_evolucion, use_container_width=False, config={"displayModeBar": True})
+        del df_depto
+        gc.collect()
 
+        # ---- Gráfico Variación Anual ----
         st.markdown("###### Variación anual de la tasa de delitos por departamento")
+        df_var = df_evolucion.filter(pl.col('anio') >= 2010).select([
+            "depto_nombre_completo", "departamento_nombre_short", "anio",
+            "variacion", "cantidad_hechos", "poblacion_departamento"
+        ])
 
-        df_evolucion = df_evolucion.filter(pl.col('anio') >= 2010)
-
-        fig_evolucion = px.line(
-            df_evolucion, 
-            x='anio', 
+        fig_var = px.line(
+            df_var,
+            x='anio',
             y='variacion',
             line_shape='spline',
-            markers = True, 
-            color='departamento_nombre_short',  
+            markers=True,
+            color='departamento_nombre_short',
             custom_data=["depto_nombre_completo", "anio", "variacion", "cantidad_hechos", "poblacion_departamento"],
             color_discrete_sequence=colors,
             title=""
         )
 
-        for trace in fig_evolucion.data:
+        for trace in fig_var.data:
             color = trace.line.color
             trace.hovertemplate = (
-                f"<b><span style='color:{color}'>%{{customdata[0]}}</span></b><br>" +
-                "Año %{customdata[1]}<br>" +
-                "Variación: %{y:.2%}<br>" +
-                "Cantidad de delitos: %{customdata[3]:,.0f}<br>" +
+                f"<b><span style='color:{color}'>%{{customdata[0]}}</span></b><br>"
+                "Año %{customdata[1]}<br>"
+                "Variación: %{y:.2%}<br>"
+                "Cantidad de delitos: %{customdata[3]:,.0f}<br>"
                 "Población: %{customdata[4]:,.0f}<extra></extra>"
             )
             trace.line.width = 3
 
-        fig_evolucion.update_traces(
-            marker=dict(size=8),
-        )
-
-        fig_evolucion.update_layout(
+        fig_var.update_traces(marker=dict(size=8))
+        fig_var.update_layout(
             xaxis_title="",
             yaxis_title="",
             showlegend=False,
@@ -1637,25 +1549,19 @@ En la pestaña de Vista general, si miramos hacia atrás, en 2013 Tordillo tambi
             height=400,
             margin=dict(l=0, r=120, t=0, b=0),
         )
+        fig_var.add_hline(y=0, line_dash="dash", line_color="darkgrey", line_width=2)
+        fig_var.update_yaxes(showgrid=True, gridcolor='lightgray', tickformat=".0%")
+        min_year = df_var["anio"].min()
+        max_year = df_var["anio"].max()
+        fig_var.update_xaxes(range=[min_year - 0.5, max_year + 0.5], dtick=1)
 
-        fig_evolucion.add_hline(y=0, line_dash="dash", line_color="darkgrey", line_width=2)
-
-        fig_evolucion.update_yaxes(showgrid=True, gridcolor='lightgray', tickformat=".0%")
-
-        min_year = df_evolucion["anio"].min()
-        max_year = df_evolucion["anio"].max()
-        fig_evolucion.update_xaxes(range=[min_year - 0.5, max_year + 0.5], dtick=1)
-
-        color_map = {trace.name: trace.line.color for trace in fig_evolucion.data}
-
-        for prov in df_evolucion["departamento_nombre_short"].unique().to_list():
-            df_prov = df_evolucion.filter(pl.col("departamento_nombre_short") == prov)
-            
+        # Etiquetas finales con mismo color que línea
+        color_map = {trace.name: trace.line.color for trace in fig_var.data}
+        for prov in df_var["departamento_nombre_short"].unique().to_list():
+            df_prov = df_var.filter(pl.col("departamento_nombre_short") == prov)
             ultimo_x = df_prov["anio"].max()
-            
             ultimo_y = df_prov.filter(pl.col("anio") == ultimo_x)["variacion"].item()
-            
-            fig_evolucion.add_annotation(
+            fig_var.add_annotation(
                 x=ultimo_x,
                 y=ultimo_y,
                 text=prov,
@@ -1665,7 +1571,9 @@ En la pestaña de Vista general, si miramos hacia atrás, en 2013 Tordillo tambi
                 font=dict(size=12, color=color_map[prov])
             )
 
-        st.plotly_chart(fig_evolucion, use_container_width=False, config={"displayModeBar": True})
+        st.plotly_chart(fig_var, use_container_width=False, config={"displayModeBar": True})
+        del df_var, df_prov
+        gc.collect()
 
 with tab5:
     col1, col2 = st.columns([1, 3], gap = "medium")
@@ -1706,3 +1614,11 @@ with tab5:
             - **Precisión a nivel departamento**: en el nivel más granular, los datos pueden presentar inconsistencias. No siempre es seguro que las delimitaciones de departamentos utilizadas por el INDEC para estimar población coincidan con las del SNIC para atribuir delitos. Esto puede generar discrepancias al calcular tasas y dificultar las comparaciones entre departamentos.
             """ 
         )
+
+process = psutil.Process(os.getpid())
+
+while True:
+    cpu_percent = process.cpu_percent(interval=1)  # % de CPU usado en el último segundo
+    memory_mb = process.memory_info().rss / (1024**2)  # memoria residente en MB
+    print(f"CPU: {cpu_percent}% | Memoria: {memory_mb:.2f} MB")
+    time.sleep(2)  # espera 2 segundos antes de medir de nuevo
