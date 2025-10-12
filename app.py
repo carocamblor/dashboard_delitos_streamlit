@@ -7,6 +7,7 @@ import json
 import psutil
 import os
 import time
+from datetime import datetime, timedelta, timezone
 
 # ---------------- CONFIGURACIÓN DE PÁGINA ---------------- #
 st.set_page_config(
@@ -1347,8 +1348,7 @@ with tab4:
             gc.collect()
 
         with col_info:
-            st.info("""Llama la atención el caso de **Tordillo** (Buenos Aires), que en 2024 exhibe una tasa de delitos extraordinariamente alta debido a la combinación de una pequeña población y un gran número de hechos registrados. Utilizando la pestaña Categorías y tipos de delitos, podemos ver que la mayoría corresponden a delitos vinculados a la **ley 23.737 (estupefacientes).**
-    En la pestaña de Vista general, si miramos hacia atrás, en 2013 Tordillo también había registrado un pico excepcional de **amenazas** (más de 2.000 hechos), lo que invita a cuestionar a qué se deben estos picos.""")
+            st.info("""Llama la atención el caso de **Tordillo** (Buenos Aires), que en 2024 exhibe una tasa de delitos extraordinariamente alta debido a la combinación de una pequeña población y un gran número de hechos registrados. Utilizando la pestaña Categorías y tipos de delitos, podemos ver que la mayoría corresponden a delitos vinculados a la **ley 23.737 (estupefacientes).**""")
         
         # Evolución por departamento
         st.markdown(f"#### Evolución a lo largo de los años")
@@ -1587,8 +1587,11 @@ with tab5:
 
 process = psutil.Process(os.getpid())
 
+# Definimos la zona horaria UTC-3
+utc_minus_3 = timezone(timedelta(hours=-3))
+
 while True:
-    cpu_percent = process.cpu_percent(interval=1)  # % de CPU usado en el último segundo
     memory_mb = process.memory_info().rss / (1024**2)  # memoria residente en MB
-    print(f"CPU: {cpu_percent}% | Memoria: {memory_mb:.2f} MB")
-    time.sleep(2)  # espera 2 segundos antes de medir de nuevo
+    timestamp = datetime.now(utc_minus_3).strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{timestamp}] Memoria: {memory_mb:.2f} MB")
+    time.sleep(15 * 60)  # espera 15 minutos antes de medir de nuevo
