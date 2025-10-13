@@ -215,10 +215,14 @@ with tab1:
 
         st.markdown("**Filtros aplicados**")
         st.markdown(f"""
-        • **Año:** {año_seleccionado}  
-        • **Categorías:** {", ".join(map(str, categoria_delito_seleccionadas))}  
-        • **Tipos de delito:** {", ".join(map(str, tipo_delito_seleccionados))}  
-        • **Provincia:** {provincia_seleccionada}  
+        • **Año:** {año_seleccionado}
+
+        • **Categorías:** {", ".join(map(str, categoria_delito_seleccionadas))}
+
+        • **Tipos de delito:** {", ".join(map(str, tipo_delito_seleccionados))}
+
+        • **Provincia:** {provincia_seleccionada}
+
         • **Departamento:** {departamento_seleccionado}
         """)
 
@@ -260,6 +264,9 @@ with tab1:
             pl.col(col_poblacion).max().alias("poblacion")
         ]).collect()
 
+        metricas_año = metricas_año.fill_null(0)
+        metricas_prev = metricas_prev.fill_null(0)
+
         # Extraer valores
         total_hechos = metricas_año["total_hechos"][0]
         total_victimas = metricas_año["total_victimas"][0]
@@ -274,7 +281,7 @@ with tab1:
 
         # Cálculos
         tasa = (total_hechos / poblacion) * 100000
-        tasa_prev = (total_hechos_prev / poblacion_prev) * 100000
+        tasa_prev = (total_hechos_prev / poblacion_prev) * 100000 if poblacion_prev != 0 else 0
         variacion = ((tasa - tasa_prev) / tasa_prev) * 100 if tasa_prev != 0 else 0
 
         st.markdown(f"#### Métricas {año_seleccionado}")
@@ -793,7 +800,7 @@ with tab2:
         # =======================
         # INFO ADICIONAL
         # =======================
-        st.info("Si filtramos por Salta, podemos notar que **en Salta en 2024 el 24% de los delitos registrados fueron contravenciones,** en contraste con el 4% a nivel nacional. ¿Cuál puede ser la razón por la cual hay una mayor proporción de contravenciones en Salta?")
+        st.info("Si filtramos por **Salta**, podemos notar que **en 2024 el 24% de los delitos registrados en la provincia correspondieron a contravenciones**, en contraste con el 4% a nivel nacional. Es importante señalar que las contravenciones son faltas menores o propias de cada jurisdicción, por lo que se trata de una categoría **heterogénea** entre provincias.")
 
         st.info("Si vamos a la pestaña Comparar departamentos, podemos ver que **Tordillo (Buenos Aires)** registró la mayor tasa de delitos en 2024. Al filtrar por este departamento en esta pestaña, podemos notar que el 94% son por **tenencia atenuada para uso personal de estupefacientes.**")
 
@@ -868,7 +875,8 @@ with tab3:
 
         st.divider()
         st.info("Si seleccionamos **homicidios dolosos** como tipo de delito, vemos que **Santa Fe** se posiciona en 2024 como la provincia con la mayor tasa del país.")
-        st.info("Seleccionando la categoría de **contrabando,** vemos que **Formosa** es la provincia con mayor tasa de contrabando.")
+        st.info("Seleccionando la categoría de **contrabando,** podemos ver que las provincias del **norte** tienen las mayores tasas.")
+        st.info("Filtrando por **siembra y producción de estupefaciones** como tipo de delito, vemos que **La Pampa** tiene la mayor tasa para este tipo de delito.")
         st.divider()
         st.info("Si utilizamos los gráficos de evolución para **comparar la tasa de delitos general de Santa Fe y Salta**, podermos ver que Santa Fe se ha mantenido relativamente estable en los últimos 15 años, mientras que Salta muestra un comportamiento más volátil y una tendencia creciente.")
 
@@ -1676,7 +1684,7 @@ with tab5:
         st.markdown(f"#### Metodología")
         st.markdown("**Creación del dataset**")
         st.info(
-            """Utilizando la librería Polar en Google Colab, se tomaron los datos recolectados por el SNIC (Sistema Nacional de Información Criminal) y las proyecciones de población realizadas por el INDEC a nivel departamento; y se cruzaron ambas fuentes de datos para obtener un dataset que contiene una fila para cada combinación de provincia, departamento y tipo de delito, con su correspondiente cantidad de hechos y víctimas, y población a nivel departamento, provincia y país. [El código está disponible en este notebook de Google Colab.](https://colab.research.google.com/drive/1YWjzinfXxcGgIHPhCizsOjG-HZQSrhIc?usp=sharing).""" 
+            """Utilizando la librería Polar en Google Colab, se tomaron los datos recolectados por el SNIC (Sistema Nacional de Información Criminal) y las proyecciones de población realizadas por el INDEC a nivel departamento; y se cruzaron ambas fuentes de datos para obtener un dataset que contiene una fila para cada combinación de provincia, departamento y tipo de delito, con su correspondiente cantidad de hechos y víctimas, y población a nivel departamento, provincia y país. [El código está disponible en este notebook de Google Colab](https://colab.research.google.com/drive/1YWjzinfXxcGgIHPhCizsOjG-HZQSrhIc?usp=sharing).""" 
         )
         st.markdown("**Dashboard y métricas**")
         st.info(
@@ -1691,7 +1699,6 @@ with tab5:
             """
             - **Solo incluye los delitos reportados**: no todos los delitos son detectados y/o registrados, y las tasas de detección y registro pueden variar entre regiones y a lo largo del tiempo. Esto genera un sesgo que puede subestimar la cantidad real de delitos.
             - **Registro heterogéneo de delitos**: la forma en que se registran los delitos puede variar entre provincias y departamentos. Esto puede afectar la comparabilidad entre jurisdicciones.
-            - **Precisión a nivel departamento**: en el nivel más granular, los datos pueden presentar inconsistencias. No siempre es seguro que las delimitaciones de departamentos utilizadas por el INDEC para estimar población coincidan con las del SNIC para atribuir delitos. Esto puede generar discrepancias al calcular tasas y dificultar las comparaciones entre departamentos.
             """ 
         )
 
