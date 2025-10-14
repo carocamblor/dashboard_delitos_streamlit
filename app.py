@@ -1464,7 +1464,7 @@ with tab4:
             gc.collect()
 
         with col_info:
-            st.info("""Llama la atención el caso de **Tordillo** (Buenos Aires), que en 2024 exhibe una tasa de delitos extraordinariamente alta debido a la combinación de una pequeña población y un gran número de hechos registrados. Utilizando la pestaña Categorías y tipos de delitos, podemos ver que la mayoría corresponden a delitos vinculados con la **Ley 23.737 (estupefacientes).**""")
+            st.info("""Llama la atención el caso de **Tordillo** (Buenos Aires), que en 2024 exhibe una tasa de delitos extraordinariamente alta debido a la combinación de una pequeña población y un gran número de hechos registrados. Utilizando la pestaña _Categorías y tipos de delitos_, podemos ver que la mayoría corresponden a delitos vinculados con la **Ley 23.737 (estupefacientes).**""")
         
         # =======================
         # EVOLUCIÓN TEMPORAL
@@ -1676,11 +1676,11 @@ with tab5:
             """
             Los datos sobre los delitos por departamento se obtuvieron del sitio web del 
             [Ministerio de Seguridad de la Nación](https://www.argentina.gob.ar/seguridad/estadisticascriminales/bases-de-datos), 
-            bajo la sección de estadísticas criminales. Los mismos datasets también están disponibles en [datos.gob.ar](https://datos.gob.ar/dataset?q=snic).
+            bajo la sección de estadísticas criminales, base de datos "SNIC - Departamentos. Mensual. Años 2000-2024". El mismo dataset también está disponible en [datos.gob.ar](https://datos.gob.ar/dataset?q=snic).
             """,
             )
         st.info(
-            """Los datos de la población anual a nivel departamento se obtuvieron a partir de las proyecciones del INDEC, disponibles en su sitio web, en la sección de [estadísticas sobre la población](https://www.indec.gob.ar/indec/web/Nivel3-Tema-2-24).""" 
+            """Los datos de la población anual a nivel departamento se obtuvieron a partir de las proyecciones del INDEC, disponibles en su sitio web, en la sección de [estadísticas sobre la población](https://www.indec.gob.ar/indec/web/Nivel4-Tema-2-24-119).""" 
         )
 
     with col2:
