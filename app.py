@@ -213,6 +213,7 @@ with tab1:
         departamento = ['Todos'] + departamentos_disponibles
         departamento_seleccionado = st.selectbox("Departamento", departamento)
 
+        st.divider()
         st.markdown("**Filtros aplicados**")
         st.markdown(f"""
         • **Año:** {año_seleccionado}
@@ -520,7 +521,7 @@ with tab1:
     col_info1, col_info2 = st.columns([1, 1], gap = 'medium')
 
     with col_info1:
-        st.info("Durante los últimos cuatro años, **la tasa de delitos creció a nivel nacional** y en 2024 superó el pico que se había alcanzado en 2019, previo a la pandemia.")
+        st.info("Durante los últimos cuatro años, **la tasa de delitos creció a nivel nacional** y, en 2024, superó el pico que se había alcanzado en 2019, antes de la pandemia.")
     with col_info2:
         st.info("Si filtramos por **homicidios dolosos**, se observa una tendencia a la baja: la tasa bajó de 7,50 cada 100.000 habitantes en 2014 a 3,68 en 2024.")
 
@@ -623,7 +624,7 @@ with tab2:
     # FILTRO DE DATOS
     # =======================
     with col2:
-        st.info("En 2024, más de la mitad de los delitos fueron **delitos contra la propiedad,** principalmente robos y hurtos.")
+        st.info("En 2024, más de la mitad de los delitos correspondieron a **delitos contra la propiedad,** principalmente robos y hurtos.")
 
         # <CHANGE> NO clonar df_lazy, construir query directamente
         df_filtrado = df_lazy.filter(pl.col("anio") == año_seleccionado)
@@ -800,9 +801,9 @@ with tab2:
         # =======================
         # INFO ADICIONAL
         # =======================
-        st.info("Si filtramos por **Salta**, podemos notar que **en 2024 el 24% de los delitos registrados en la provincia correspondieron a contravenciones**, en contraste con el 4% a nivel nacional. Es importante señalar que las contravenciones son faltas menores o propias de cada jurisdicción, por lo que se trata de una categoría **heterogénea** entre provincias.")
+        st.info("Si filtramos por **Salta**, podemos notar que, **en 2024, el 24% de los delitos registrados en la provincia correspondieron a contravenciones**, en contraste con el 4% a nivel nacional. Es importante señalar que las contravenciones son faltas menores que no se reportan de manera uniforme entre las provincias, es decir, se trata de una categoría **heterogénea** entre jurisdicciones.")
 
-        st.info("Si vamos a la pestaña Comparar departamentos, podemos ver que **Tordillo (Buenos Aires)** registró la mayor tasa de delitos en 2024. Al filtrar por este departamento en esta pestaña, podemos notar que el 94% son por **tenencia atenuada para uso personal de estupefacientes.**")
+        st.info("En la pestaña _Comparar departamentos_, se observa que **Tordillo (Buenos Aires)** registró la mayor tasa de delitos en 2024. En esta pestaña, al filtrar por este departamento, puede verse que el 94% corresponden a **tenencia simple atenuada para uso personal de estupefacientes.**")
 
     # <CHANGE> Liberar toda la memoria al final del tab
     del df_filtrado
@@ -864,6 +865,10 @@ with tab3:
             tipo_delito_seleccionados = ['Todos']
 
         st.divider()
+        st.info("Al seleccionar la categoría de **contrabando,** puede observarse que las provincias del **norte** presentan las mayores tasas.")
+        st.info("Filtrando por **siembra y producción de estupefacientes** como tipo de delito, vemos que, en 2024, **La Pampa** tuvo la mayor tasa para este tipo de delito, mientras que, en 2022 y 2023, fue **San Luis**.")
+        
+        st.divider()
         st.markdown("**Filtros aplicados**")
         st.markdown(f"""
         • **Año:** {año_seleccionado}
@@ -874,11 +879,8 @@ with tab3:
         """)
 
         st.divider()
-        st.info("Si seleccionamos **homicidios dolosos** como tipo de delito, vemos que **Santa Fe** se posiciona en 2024 como la provincia con la mayor tasa del país.")
-        st.info("Seleccionando la categoría de **contrabando,** podemos ver que las provincias del **norte** tienen las mayores tasas.")
-        st.info("Filtrando por **siembra y producción de estupefaciones** como tipo de delito, vemos que **La Pampa** tiene la mayor tasa para este tipo de delito.")
-        st.divider()
-        st.info("Si utilizamos los gráficos de evolución para **comparar la tasa de delitos general de Santa Fe y Salta**, podermos ver que Santa Fe se ha mantenido relativamente estable en los últimos 15 años, mientras que Salta muestra un comportamiento más volátil y una tendencia creciente.")
+        st.info("Si utilizamos los gráficos de evolución para **comparar la tasa de delitos general de Santa Fe y Salta**, podemos ver que Santa Fe se ha mantenido relativamente estable durante los últimos 11 años, mientras que Salta muestra un comportamiento más volátil y una tendencia creciente.")
+
 
     # =======================
     # GRÁFICOS Y ANÁLISIS
@@ -1326,6 +1328,8 @@ with tab4:
         • **Provincias:** {", ".join([str(provincia) for provincia in provincia_seleccionada])}
         """)
 
+        st.divider()
+
         st.info("Si comparamos **San Isidro y Tigre,** podemos ver que hasta 2020 mostraban trayectorias similares, pero desde 2021 sus dinámicas se invirtieron. San Isidro alcanzó un pico en 2022 y luego bajó, mientras que Tigre tuvo un mínimo en 2023 y se disparó en 2024.")
 
     # =======================
@@ -1460,7 +1464,7 @@ with tab4:
             gc.collect()
 
         with col_info:
-            st.info("""Llama la atención el caso de **Tordillo** (Buenos Aires), que en 2024 exhibe una tasa de delitos extraordinariamente alta debido a la combinación de una pequeña población y un gran número de hechos registrados. Utilizando la pestaña Categorías y tipos de delitos, podemos ver que la mayoría corresponden a delitos vinculados a la **ley 23.737 (estupefacientes).**""")
+            st.info("""Llama la atención el caso de **Tordillo** (Buenos Aires), que en 2024 exhibe una tasa de delitos extraordinariamente alta debido a la combinación de una pequeña población y un gran número de hechos registrados. Utilizando la pestaña Categorías y tipos de delitos, podemos ver que la mayoría corresponden a delitos vinculados con la **Ley 23.737 (estupefacientes).**""")
         
         # =======================
         # EVOLUCIÓN TEMPORAL
@@ -1670,21 +1674,20 @@ with tab5:
         st.markdown(f"#### Fuentes")
         st.info(
             """
-            Los datos sobre los delitos por departamento se obtuvieron de la página web del 
-            [Ministerio de Seguridad Nacional](https://www.argentina.gob.ar/seguridad/estadisticascriminales/bases-de-datos), 
-            bajo la sección de estadísticas criminales.  
-            Los mismos datasets también están disponibles en [datos.gob.ar](https://datos.gob.ar/).
+            Los datos sobre los delitos por departamento se obtuvieron del sitio web del 
+            [Ministerio de Seguridad de la Nación](https://www.argentina.gob.ar/seguridad/estadisticascriminales/bases-de-datos), 
+            bajo la sección de estadísticas criminales. Los mismos datasets también están disponibles en [datos.gob.ar](https://datos.gob.ar/dataset?q=snic).
             """,
             )
         st.info(
-            """Los datos de la población anual a nivel departamento se obtuvieron a partir de las proyecciones que realiza el INDEC, disponibles en su página web, en la sección de [estadísticas sobre la población](https://www.indec.gob.ar/indec/web/Nivel3-Tema-2-24).""" 
+            """Los datos de la población anual a nivel departamento se obtuvieron a partir de las proyecciones del INDEC, disponibles en su sitio web, en la sección de [estadísticas sobre la población](https://www.indec.gob.ar/indec/web/Nivel3-Tema-2-24).""" 
         )
 
     with col2:
         st.markdown(f"#### Metodología")
         st.markdown("**Creación del dataset**")
         st.info(
-            """Utilizando la librería Polar en Google Colab, se tomaron los datos recolectados por el SNIC (Sistema Nacional de Información Criminal) y las proyecciones de población realizadas por el INDEC a nivel departamento; y se cruzaron ambas fuentes de datos para obtener un dataset que contiene una fila para cada combinación de provincia, departamento y tipo de delito, con su correspondiente cantidad de hechos y víctimas, y población a nivel departamento, provincia y país. [El código está disponible en este notebook de Google Colab](https://colab.research.google.com/drive/1YWjzinfXxcGgIHPhCizsOjG-HZQSrhIc?usp=sharing).""" 
+            """Utilizando la librería Polars en Google Colab, se tomaron los datos recolectados por el SNIC (Sistema Nacional de Información Criminal) y las proyecciones de población realizadas por el INDEC a nivel departamental, y se cruzaron ambas fuentes para obtener un dataset que contiene una fila por cada combinación de provincia, departamento y tipo de delito, con la cantidad correspondiente de hechos, víctimas y población a nivel departamental, provincial y nacional. [El código está disponible en este notebook de Google Colab](https://colab.research.google.com/drive/1YWjzinfXxcGgIHPhCizsOjG-HZQSrhIc?usp=sharing).""" 
         )
         st.markdown("**Dashboard y métricas**")
         st.info(
@@ -1698,7 +1701,7 @@ with tab5:
         st.info(
             """
             - **Solo incluye los delitos reportados**: no todos los delitos son detectados y/o registrados, y las tasas de detección y registro pueden variar entre regiones y a lo largo del tiempo. Esto genera un sesgo que puede subestimar la cantidad real de delitos.
-            - **Registro heterogéneo de delitos**: la forma en que se registran los delitos puede variar entre provincias y departamentos. Esto puede afectar la comparabilidad entre jurisdicciones.
+            - **Registro heterogéneo de delitos**: la forma en que se registran los delitos puede variar entre provincias y departamentos, lo que afecta la comparabilidad entre jurisdicciones. Además, a lo largo de los años, algunos tipos de delitos utilizados para clasificar los hechos han cambiado, lo cual dificulta, en ciertos casos, analizar su evolución temporal. 
             """ 
         )
 
