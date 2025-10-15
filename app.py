@@ -4,11 +4,6 @@ import plotly.express as px
 import gc
 import json
 
-import psutil
-import os
-import time
-from datetime import datetime, timedelta, timezone
-
 # ---------------- CONFIGURACIÓN DE PÁGINA ---------------- #
 st.set_page_config(
     page_title="Delitos en Argentina",
@@ -1704,16 +1699,3 @@ with tab5:
             - **Registro heterogéneo de delitos**: la forma en que se registran los delitos puede variar entre provincias y departamentos, lo que afecta la comparabilidad entre jurisdicciones. Además, a lo largo de los años, algunos tipos de delitos utilizados para clasificar los hechos han cambiado, lo cual dificulta, en ciertos casos, analizar su evolución temporal. 
             """ 
         )
-
-# USO DE MEMORIA
-
-process = psutil.Process(os.getpid())
-
-# Definimos la zona horaria UTC-3
-utc_minus_3 = timezone(timedelta(hours=-3))
-
-while True:
-    memory_mb = process.memory_info().rss / (1024**2)  # memoria residente en MB
-    timestamp = datetime.now(utc_minus_3).strftime("%Y-%m-%d %H:%M:%S")
-    print(f"[{timestamp}] Memoria: {memory_mb:.2f} MB")
-    time.sleep(15 * 60)  # espera 15 minutos antes de medir de nuevo
