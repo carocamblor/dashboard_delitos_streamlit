@@ -797,6 +797,8 @@ with tab2:
         # INFO ADICIONAL
         # =======================
         st.info("Si filtramos por **Salta**, podemos notar que, **en 2024, el 24% de los delitos registrados en la provincia correspondieron a contravenciones**, en contraste con el 4% a nivel nacional. Es importante señalar que las contravenciones son faltas menores que no se reportan de manera uniforme entre las provincias, es decir, se trata de una categoría **heterogénea** entre jurisdicciones.")
+        
+        st.info("Si filtramos por **Salta** y por la categoría **Delitos contra la propiedad**, vemos que, en 2024, en esta provincia, el 36.1% de los delitos de esta categoría correspondieron a hurtos y el 32.6% a robos (excluyendo los agravados por resultado de lesiones y/o muertes).")
 
         st.info("En la pestaña _Comparar departamentos_, se observa que **Tordillo (Buenos Aires)** registró la mayor tasa de delitos en 2024. En esta pestaña, al filtrar por este departamento, puede verse que el 94% corresponden a **tenencia simple atenuada para uso personal de estupefacientes.**")
 
