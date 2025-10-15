@@ -518,7 +518,7 @@ with tab1:
     with col_info1:
         st.info("Durante los últimos cuatro años, **la tasa de delitos creció a nivel nacional** y, en 2024, superó el pico que se había alcanzado en 2019, antes de la pandemia.")
     with col_info2:
-        st.info("Si filtramos por **homicidios dolosos**, se observa una tendencia a la baja: la tasa bajó de 7,50 cada 100.000 habitantes en 2014 a 3,68 en 2024.")
+        st.info("Si filtramos por **homicidios dolosos** como tipo de delito, se observa una tendencia a la baja: la tasa bajó de 7,50 cada 100.000 habitantes en 2014 a 3,68 en 2024.")
 
 # ---- Categorías y tipos de delito ----
 # ---- Categorías y tipos de delito ----
