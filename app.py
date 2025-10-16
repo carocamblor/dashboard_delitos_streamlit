@@ -1684,7 +1684,7 @@ with tab5:
         st.markdown(f"#### Metodología")
         st.markdown("**Creación del dataset**")
         st.info(
-            """Utilizando la librería Polars en Google Colab, se tomaron los datos recolectados por el SNIC (Sistema Nacional de Información Criminal) y las proyecciones de población realizadas por el INDEC a nivel departamental, y se cruzaron ambas fuentes para obtener un dataset que contiene una fila por cada combinación de provincia, departamento y tipo de delito, con la cantidad correspondiente de hechos, víctimas y población a nivel departamental, provincial y nacional. [El código está disponible en este notebook de Google Colab](https://colab.research.google.com/drive/1YWjzinfXxcGgIHPhCizsOjG-HZQSrhIc?usp=sharing).""" 
+            """Utilizando la librería Polars en Google Colab, se tomaron los datos recolectados por el SNIC (Sistema Nacional de Información Criminal) y las proyecciones de población realizadas por el INDEC a nivel departamental, y se cruzaron ambas fuentes para obtener un dataset que contiene una fila por cada combinación de provincia, departamento, categoría y tipo de delito, con la cantidad correspondiente de hechos, víctimas y población a nivel departamental, provincial y nacional. [El código está disponible en este notebook de Google Colab](https://colab.research.google.com/drive/1YWjzinfXxcGgIHPhCizsOjG-HZQSrhIc?usp=sharing).""" 
         )
         st.markdown("**Dashboard y métricas**")
         st.info(
